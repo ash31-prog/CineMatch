@@ -385,7 +385,3 @@ with st.expander("How CineMatch works"):
     5. **Ranking:** excludes the selected movie and displays the closest matches.
     """)
 
-st.caption(
-    "Similarity scores measure metadata similarity. They are not audience ratings "
-    "or probabilities that a viewer will enjoy a movie."
-)
