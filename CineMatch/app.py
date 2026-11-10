@@ -216,16 +216,3 @@ st.markdown(
     "padding:18px 20px'>" + "".join(bars) + "</div>",
     unsafe_allow_html=True
 )
-with st.expander("How CineMatch works"):
-    st.markdown("""
-    1. **Metadata preparation:** combines each movie's genres, overview and keywords.
-    2. **TF-IDF:** converts the text into numerical feature vectors.
-    3. **Cosine Similarity:** ranks movies by similarity between their vectors.
-    4. **KNN:** retrieves the nearest movie vectors using cosine distance.
-    5. **Ranking:** excludes the selected movie and displays the closest matches.
-    """)
-
-st.caption(
-    "Similarity scores measure metadata similarity. They are not audience ratings "
-    "or probabilities that a viewer will enjoy a movie."
-)
