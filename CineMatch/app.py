@@ -1,111 +1,231 @@
 import streamlit as st
 import pandas as pd
-from pathlib import Path
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.neighbors import NearestNeighbors
+from pathlib import Path
 
 ROOT = Path(__file__).parent
 DATA = ROOT / "data" / "movies.csv"
-MODEL_DIR = ROOT / "models"
-MODEL_DIR.mkdir(exist_ok=True)
 
-st.set_page_config(page_title="CineMatch", page_icon="🎬", layout="wide")
+st.set_page_config(
+    page_title="CineMatch | Movie Discovery",
+    page_icon=None,
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Force a consistent light palette even when the viewer's Streamlit account
+# or browser is using dark mode. All text has explicit high-contrast colours.
 st.markdown("""
 <style>
-.stApp {background: linear-gradient(135deg,#fbf7ef 0%,#f2edf8 100%);}
-.block-container {padding-top:2rem; max-width:1150px;}
-h1,h2,h3 {color:#342b43;}
-div[data-testid="stMetric"] {background:#ffffffb8;padding:16px;border-radius:14px;border:1px solid #e7deef;}
+:root {
+    color-scheme: light;
+}
+html, body, [data-testid="stAppViewContainer"], .stApp {
+    background: #F7F4EE !important;
+    color: #292536 !important;
+}
+[data-testid="stHeader"] {
+    background: rgba(247,244,238,0.96) !important;
+}
+[data-testid="stToolbar"] { right: 1rem; }
+[data-testid="stMain"], [data-testid="stMain"] * {
+    color: #292536;
+}
+h1, h2, h3, h4, p, label, span, div, li, small {
+    color: #292536;
+}
+h1 { font-size: 2.55rem !important; font-weight: 750 !important; letter-spacing: -1.2px; }
+h2 { font-weight: 700 !important; }
+[data-testid="stSidebar"] {
+    background: #ECE6F3 !important;
+    border-right: 1px solid #DCD2E8;
+}
+[data-testid="stSidebar"] * { color: #292536 !important; }
+[data-testid="stSelectbox"] > div > div,
+[data-testid="stTextInput"] input {
+    background: #FFFFFF !important;
+    color: #292536 !important;
+    border: 1px solid #D9D1E2 !important;
+    border-radius: 10px !important;
+}
+[data-baseweb="select"] * { color: #292536 !important; }
+[data-baseweb="popover"], [data-baseweb="menu"] {
+    background: #FFFFFF !important;
+}
+[data-baseweb="menu"] * { color: #292536 !important; }
+.stButton > button {
+    background: #75618F !important;
+    color: #FFFFFF !important;
+    border: 0 !important;
+    border-radius: 10px !important;
+    min-height: 46px;
+    font-weight: 650 !important;
+}
+.stButton > button:hover {
+    background: #5F4C78 !important;
+    color: #FFFFFF !important;
+    border: 0 !important;
+}
+div[data-testid="stMetric"] {
+    background: #FFFFFF !important;
+    border: 1px solid #E4DCEB !important;
+    border-radius: 14px !important;
+    padding: 16px !important;
+}
+div[data-testid="stMetric"] * { color: #292536 !important; }
+div[data-testid="stVerticalBlockBorderWrapper"] {
+    background: #FFFFFF !important;
+    border: 1px solid #E4DCEB !important;
+    border-radius: 14px !important;
+}
+hr { border-color: #DED6E6 !important; }
+[data-testid="stCaptionContainer"] * { color: #655D70 !important; }
+.stRadio label, .stSlider label { color: #292536 !important; }
+[data-testid="stAlert"] * { color: #292536 !important; }
+a { color: #675080 !important; }
+#MainMenu, footer { visibility: hidden; }
 </style>
 """, unsafe_allow_html=True)
 
 @st.cache_resource
 def load_engine():
     df = pd.read_csv(DATA).fillna("")
-    df["content"] = (df["genres"].str.replace(",", " ", regex=False)
-                     + " " + df["overview"] + " " + df["keywords"])
-    tfidf = TfidfVectorizer(stop_words="english", ngram_range=(1,2))
-    matrix = tfidf.fit_transform(df["content"])
+    df["content"] = (
+        df["genres"].str.replace(",", " ", regex=False)
+        + " " + df["overview"] + " " + df["keywords"]
+    )
+    vectorizer = TfidfVectorizer(stop_words="english", ngram_range=(1, 2))
+    matrix = vectorizer.fit_transform(df["content"])
     sim = cosine_similarity(matrix)
-    knn = NearestNeighbors(metric="cosine", algorithm="brute", n_neighbors=min(6,len(df)))
-    knn.fit(matrix)
-    return df, tfidf, matrix, sim, knn
+    knn = NearestNeighbors(
+        metric="cosine", algorithm="brute",
+        n_neighbors=min(6, len(df))
+    ).fit(matrix)
+    return df, matrix, sim, knn
 
-df, vectorizer, matrix, similarity, knn = load_engine()
+df, matrix, similarity, knn = load_engine()
 
-def recommend_cosine(title, n=5):
+def recommend_cosine(title, count):
     idx = df.index[df["title"] == title][0]
-    scores = list(enumerate(similarity[idx]))
-    scores = sorted((x for x in scores if x[0] != idx), key=lambda x:x[1], reverse=True)[:n]
-    return [(df.iloc[i], float(score)) for i,score in scores]
+    ranked = sorted(
+        ((i, float(score)) for i, score in enumerate(similarity[idx]) if i != idx),
+        key=lambda item: item[1], reverse=True
+    )[:count]
+    return [(df.iloc[i], score) for i, score in ranked]
 
-def recommend_knn(title, n=5):
+def recommend_knn(title, count):
     idx = df.index[df["title"] == title][0]
-    distances, indices = knn.kneighbors(matrix[idx], n_neighbors=min(n+1,len(df)))
-    results=[]
-    for i,d in zip(indices[0], distances[0]):
+    distances, indices = knn.kneighbors(
+        matrix[idx], n_neighbors=min(count + 1, len(df))
+    )
+    result = []
+    for i, distance in zip(indices[0], distances[0]):
         if i != idx:
-            results.append((df.iloc[i], float(1-d)))
-        if len(results)==n: break
-    return results
+            result.append((df.iloc[i], float(1 - distance)))
+        if len(result) >= count:
+            break
+    return result
 
-st.title("🎬 CineMatch")
-st.caption("Discover your next favourite movie through content-based machine learning.")
-st.write("Choose a movie you already enjoy. CineMatch analyses its genres, plot description and keywords to recommend similar titles.")
+# Header
+st.markdown("<div style='font-size:0.78rem;letter-spacing:3px;font-weight:700;color:#806B98;margin-bottom:8px'>CONTENT-BASED RECOMMENDATION</div>", unsafe_allow_html=True)
+st.title("CineMatch")
+st.markdown(
+    "<p style='font-size:1.08rem;color:#625B6B !important;max-width:760px'>"
+    "Find your next film through the stories, genres and themes you already enjoy."
+    "</p>", unsafe_allow_html=True
+)
+st.write("")
 
 with st.sidebar:
-    st.header("⚙️ Recommendation settings")
-    method = st.radio("Recommendation algorithm", ["Cosine Similarity", "K-Nearest Neighbors (KNN)"])
+    st.markdown("## Recommendation settings")
+    method = st.radio(
+        "Recommendation algorithm",
+        ["Cosine Similarity", "K-Nearest Neighbors (KNN)"]
+    )
     count = st.slider("Number of recommendations", 3, 5, 5)
     st.divider()
-    st.caption(f"Movie catalogue: {len(df)} titles")
-    st.caption("Models: TF-IDF + Cosine Similarity / KNN")
+    st.markdown(f"**Movie catalogue**  \n{len(df)} titles")
+    st.markdown("**Feature model**  \nTF-IDF")
+    st.markdown("**Similarity metric**  \nCosine")
 
-col1, col2 = st.columns([2,1])
-with col1:
-    selected = st.selectbox("Select a movie", sorted(df["title"].tolist()))
-with col2:
-    st.write("")
-    st.write("")
-    run = st.button("✨ Find similar movies", type="primary", use_container_width=True)
+left, right = st.columns([3, 1])
+with left:
+    selected = st.selectbox("Choose a movie", sorted(df["title"].tolist()))
+with right:
+    st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+    run = st.button("Find similar movies", use_container_width=True)
 
 if run:
-    results = recommend_cosine(selected,count) if method=="Cosine Similarity" else recommend_knn(selected,count)
-    st.subheader(f"Because you liked *{selected}*...")
-    if not results:
-        st.info("No recommendations available.")
-    else:
-        for rank,(movie,score) in enumerate(results,1):
+    results = (
+        recommend_cosine(selected, count)
+        if method == "Cosine Similarity"
+        else recommend_knn(selected, count)
+    )
+    st.markdown("---")
+    st.subheader(f"Recommendations similar to {selected}")
+    if results:
+        for rank, (movie, score) in enumerate(results, 1):
             with st.container(border=True):
-                a,b = st.columns([1,5])
-                with a:
-                    st.markdown(f"### #{rank}")
-                    st.metric("Similarity", f"{score*100:.1f}%")
-                with b:
+                c1, c2 = st.columns([0.7, 5])
+                with c1:
+                    st.markdown(
+                        f"<div style='font-size:1.35rem;font-weight:750;color:#75618F'>"
+                        f"{rank:02d}</div>", unsafe_allow_html=True
+                    )
+                    st.markdown(
+                        f"<div style='font-size:0.85rem;color:#625B6B'>{score*100:.1f}% match</div>",
+                        unsafe_allow_html=True
+                    )
+                with c2:
                     st.markdown(f"**{movie['title']}**")
                     st.caption(movie["genres"])
                     st.write(movie["overview"])
+    else:
+        st.info("No recommendations were found for this title.")
 
-st.divider()
-st.subheader("📊 Catalogue insights")
-c1,c2,c3 = st.columns(3)
-c1.metric("Movies",len(df))
-c2.metric("Genres",len(set(g.strip() for row in df.genres for g in row.split(","))))
-c3.metric("Algorithms",2)
+st.markdown("---")
+st.subheader("Catalogue overview")
 genre_counts = {}
-for row in df.genres:
-    for genre in row.replace(",", " ").split():
-        genre_counts[genre.strip()] = genre_counts.get(genre.strip(),0)+1
-chart = pd.DataFrame({"Genre":list(genre_counts.keys()),"Movie count":list(genre_counts.values())}).set_index("Genre")
-st.bar_chart(chart)
-st.caption("Similarity scores are text-vector similarity scores, not audience ratings or probabilities of liking a movie.")
+for genres in df["genres"]:
+    for genre in genres.split(","):
+        genre = genre.strip()
+        genre_counts[genre] = genre_counts.get(genre, 0) + 1
 
-with st.expander("How does CineMatch work?"):
+m1, m2, m3 = st.columns(3)
+m1.metric("Movies", len(df))
+m2.metric("Genres", len(genre_counts))
+m3.metric("Algorithms", 2)
+
+# Draw a light-theme chart using HTML bars, avoiding theme-dependent dark charts.
+max_count = max(genre_counts.values()) if genre_counts else 1
+bars = []
+for genre, value in sorted(genre_counts.items(), key=lambda x: x[1], reverse=True):
+    width = max(3, int(value / max_count * 100))
+    bars.append(
+        f"<div style='display:grid;grid-template-columns:120px 1fr 32px;gap:12px;"
+        f"align-items:center;margin:10px 0'>"
+        f"<span style='font-size:0.9rem;color:#393244'>{genre}</span>"
+        f"<div style='height:11px;background:#EEE8F3;border-radius:20px;overflow:hidden'>"
+        f"<div style='height:11px;width:{width}%;background:#9A83B4;border-radius:20px'></div></div>"
+        f"<span style='font-size:0.85rem;color:#625B6B;text-align:right'>{value}</span></div>"
+    )
+st.markdown(
+    "<div style='background:#FFFFFF;border:1px solid #E4DCEB;border-radius:14px;"
+    "padding:18px 20px'>" + "".join(bars) + "</div>",
+    unsafe_allow_html=True
+)
+with st.expander("How CineMatch works"):
     st.markdown("""
-    1. **Content preparation:** combines each movie's genres, overview and keywords.
-    2. **TF-IDF:** converts text into numerical feature vectors and gives more weight to informative terms.
-    3. **Cosine Similarity:** measures the angle-based similarity between movie vectors.
+    1. **Metadata preparation:** combines each movie's genres, overview and keywords.
+    2. **TF-IDF:** converts the text into numerical feature vectors.
+    3. **Cosine Similarity:** ranks movies by similarity between their vectors.
     4. **KNN:** retrieves the nearest movie vectors using cosine distance.
-    5. **Ranking:** excludes the selected movie and returns the top five neighbours.
+    5. **Ranking:** excludes the selected movie and displays the closest matches.
     """)
+
+st.caption(
+    "Similarity scores measure metadata similarity. They are not audience ratings "
+    "or probabilities that a viewer will enjoy a movie."
+)
